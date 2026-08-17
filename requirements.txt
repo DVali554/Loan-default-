@@ -6,3 +6,6 @@ joblib
 matplotlib
 seaborn
 streamlit
+fastapi
+uvicorn
+pydantic
