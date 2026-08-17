@@ -1,13 +1,52 @@
+import os
 import streamlit as st
 import pandas as pd
 import joblib
-
-# Load serialized artifacts
-model = joblib.load('credit_risk_model.pkl')
-scaler = joblib.load('scaler.pkl')
-label_encoders = joblib.load('label_encoders.pkl')
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import train_test_split
 
 st.set_page_config(page_title="Loan Default Predictor", layout="wide")
+
+@st.cache_resource
+def load_or_train_pipeline():
+    if os.path.exists('credit_risk_model.pkl') and os.path.exists('scaler.pkl') and os.path.exists('label_encoders.pkl'):
+        model = joblib.load('credit_risk_model.pkl')
+        scaler = joblib.load('scaler.pkl')
+        encoders = joblib.load('label_encoders.pkl')
+        return model, scaler, encoders
+
+    csv_path = 'data/Loan_default.csv' if os.path.exists('data/Loan_default.csv') else 'Loan_default.csv'
+    df = pd.read_csv(csv_path)
+    if 'LoanID' in df.columns:
+        df = df.drop(['LoanID'], axis=1)
+
+    categorical_cols = ['Education', 'EmploymentType', 'MaritalStatus', 'HasMortgage',
+                        'HasDependents', 'LoanPurpose', 'HasCoSigner']
+    encoders = {}
+    for col in categorical_cols:
+        if col in df.columns:
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col])
+            encoders[col] = le
+
+    X = df.drop('Default', axis=1)
+    y = df['Default']
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    smote = SMOTE(random_state=42)
+    X_res, y_res = smote.fit_resample(X_scaled, y)
+
+    X_train, _, y_train, _ = train_test_split(X_res, y_res, test_size=0.2, random_state=42)
+    model = RandomForestClassifier(n_estimators=100, max_depth=12, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    return model, scaler, encoders
+
+model, scaler, label_encoders = load_or_train_pipeline()
+
 st.title("🏦 Loan Default Risk Predictor")
 st.markdown("Enter applicant financial and demographic details to evaluate default risk.")
 
