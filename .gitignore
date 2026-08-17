@@ -8,3 +8,9 @@ __pycache__/
 .venv/
 env/
 *.db
+.coverage
+assert
+.pytest_cache/
+__pycache__/
+*.pkl
+predictions.db
