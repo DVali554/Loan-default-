@@ -9,3 +9,5 @@ streamlit
 fastapi
 uvicorn
 pydantic
+shap
+python-multipart

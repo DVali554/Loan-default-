@@ -1,16 +1,19 @@
 import os
 import streamlit as st
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 import joblib
+import shap
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import train_test_split
 
-st.set_page_config(page_title="Loan Default Predictor", layout="wide")
+st.set_page_config(page_title="Loan Default Predictor & Explainability", layout="wide")
 
 @st.cache_resource
-def load_or_train_pipeline():
+def load_pipeline():
     if os.path.exists('credit_risk_model.pkl') and os.path.exists('scaler.pkl') and os.path.exists('label_encoders.pkl'):
         model = joblib.load('credit_risk_model.pkl')
         scaler = joblib.load('scaler.pkl')
@@ -45,10 +48,17 @@ def load_or_train_pipeline():
     model.fit(X_train, y_train)
     return model, scaler, encoders
 
-model, scaler, label_encoders = load_or_train_pipeline()
+model, scaler, label_encoders = load_pipeline()
 
-st.title("🏦 Loan Default Risk Predictor")
-st.markdown("Enter applicant financial and demographic details to evaluate default risk.")
+# Create SHAP TreeExplainer
+@st.cache_resource
+def get_explainer(_model):
+    return shap.TreeExplainer(_model)
+
+explainer = get_explainer(model)
+
+st.title("🏦 Loan Default Risk Predictor & Explainability")
+st.markdown("Predict borrower default risk and visualize feature contributions with SHAP.")
 
 col1, col2 = st.columns(2)
 
@@ -72,7 +82,12 @@ with col2:
     purpose = st.selectbox("Loan Purpose", ["Home", "Auto", "Education", "Business", "Other"])
     cosigner = st.selectbox("Has Co-Signer", ["No", "Yes"])
 
-if st.button("Predict Default Risk", type="primary"):
+feature_names = ['Age', 'Income', 'LoanAmount', 'CreditScore', 'MonthsEmployed',
+                 'NumCreditLines', 'InterestRate', 'LoanTerm', 'DTIRatio', 'Education',
+                 'EmploymentType', 'MaritalStatus', 'HasMortgage', 'HasDependents',
+                 'LoanPurpose', 'HasCoSigner']
+
+if st.button("Predict & Explain Risk", type="primary"):
     data = pd.DataFrame([{
         'Age': age, 'Income': income, 'LoanAmount': loan_amount,
         'CreditScore': credit_score, 'MonthsEmployed': months_employed,
@@ -96,3 +111,12 @@ if st.button("Predict Default Risk", type="primary"):
         st.error(f"⚠️ **High Risk: Likely to Default** (Estimated Default Probability: **{prob:.1%}**)")
     else:
         st.success(f"✅ **Low Risk: No Default Expected** (Estimated Default Probability: **{prob:.1%}**)")
+
+    st.subheader("🔍 Decision Factors (SHAP Explanation)")
+    st.write("Factors pushing the prediction towards default appear in red, while factors reducing risk appear in blue.")
+
+    shap_explanation = explainer(scaled)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    shap.plots.waterfall(shap_explanation[0, :, 1], show=False)
+    st.pyplot(fig)
+    plt.close()

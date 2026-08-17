@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+import io
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import pandas as pd
 import joblib
@@ -46,3 +48,35 @@ def predict_default(applicant: Applicant):
         "prediction": "Default" if pred == 1 else "No Default",
         "default_probability": round(prob, 4)
     }
+
+@app.post("/predict-batch")
+async def predict_batch(file: UploadFile = File(...)):
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are accepted.")
+
+    content = await file.read()
+    df = pd.read_csv(io.BytesIO(content))
+
+    features_df = df.copy()
+    if 'LoanID' in features_df.columns:
+        features_df = features_df.drop(['LoanID'], axis=1)
+    if 'Default' in features_df.columns:
+        features_df = features_df.drop(['Default'], axis=1)
+
+    for col, le in label_encoders.items():
+        if col in features_df.columns:
+            features_df[col] = le.transform(features_df[col])
+
+    scaled = scaler.transform(features_df)
+    df['Predicted_Default'] = model.predict(scaled)
+    df['Default_Probability'] = model.predict_proba(scaled)[:, 1].round(4)
+
+    output = io.StringIO()
+    df.to_csv(output, index=False)
+    output.seek(0)
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=predictions.csv"}
+    )
