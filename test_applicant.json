@@ -1,0 +1,18 @@
+{
+  "Age": 35,
+  "Income": 75000,
+  "LoanAmount": 20000,
+  "CreditScore": 680,
+  "MonthsEmployed": 48,
+  "NumCreditLines": 3,
+  "InterestRate": 12.5,
+  "LoanTerm": 36,
+  "DTIRatio": 0.35,
+  "Education": "Bachelor's",
+  "EmploymentType": "Full-time",
+  "MaritalStatus": "Married",
+  "HasMortgage": "Yes",
+  "HasDependents": "No",
+  "LoanPurpose": "Home",
+  "HasCoSigner": "No"
+}
