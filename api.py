@@ -1,4 +1,6 @@
 import io
+import sqlite3
+from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -6,6 +8,28 @@ import pandas as pd
 import joblib
 
 app = FastAPI(title="Loan Default Prediction API")
+
+# Initialize database table for audit logs
+def init_db():
+    conn = sqlite3.connect("predictions.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prediction_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            age INTEGER,
+            income REAL,
+            loan_amount REAL,
+            credit_score INTEGER,
+            dti_ratio REAL,
+            prediction TEXT,
+            default_probability REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 model = joblib.load('credit_risk_model.pkl')
 scaler = joblib.load('scaler.pkl')
@@ -43,40 +67,47 @@ def predict_default(applicant: Applicant):
     scaled = scaler.transform(data)
     pred = int(model.predict(scaled)[0])
     prob = float(model.predict_proba(scaled)[0][1])
+    pred_label = "Default" if pred == 1 else "No Default"
+
+    # Save transaction to SQLite
+    conn = sqlite3.connect("predictions.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO prediction_logs (timestamp, age, income, loan_amount, credit_score, dti_ratio, prediction, default_probability)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.utcnow().isoformat(),
+        applicant.Age,
+        applicant.Income,
+        applicant.LoanAmount,
+        applicant.CreditScore,
+        applicant.DTIRatio,
+        pred_label,
+        round(prob, 4)
+    ))
+    conn.commit()
+    conn.close()
 
     return {
-        "prediction": "Default" if pred == 1 else "No Default",
+        "prediction": pred_label,
         "default_probability": round(prob, 4)
     }
 
-@app.post("/predict-batch")
-async def predict_batch(file: UploadFile = File(...)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Only CSV files are accepted.")
+@app.get("/metrics")
+def get_metrics():
+    conn = sqlite3.connect("predictions.db")
+    df_logs = pd.read_sql_query("SELECT * FROM prediction_logs", conn)
+    conn.close()
 
-    content = await file.read()
-    df = pd.read_csv(io.BytesIO(content))
+    if df_logs.empty:
+        return {"total_predictions": 0, "default_rate": 0.0}
 
-    features_df = df.copy()
-    if 'LoanID' in features_df.columns:
-        features_df = features_df.drop(['LoanID'], axis=1)
-    if 'Default' in features_df.columns:
-        features_df = features_df.drop(['Default'], axis=1)
-
-    for col, le in label_encoders.items():
-        if col in features_df.columns:
-            features_df[col] = le.transform(features_df[col])
-
-    scaled = scaler.transform(features_df)
-    df['Predicted_Default'] = model.predict(scaled)
-    df['Default_Probability'] = model.predict_proba(scaled)[:, 1].round(4)
-
-    output = io.StringIO()
-    df.to_csv(output, index=False)
-    output.seek(0)
-
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=predictions.csv"}
-    )
+    total = len(df_logs)
+    defaults = len(df_logs[df_logs['prediction'] == "Default"])
+    return {
+        "total_predictions": total,
+        "default_count": defaults,
+        "default_rate": round(defaults / total, 4),
+        "average_credit_score": round(df_logs['credit_score'].mean(), 1),
+        "average_loan_amount": round(df_logs['loan_amount'].mean(), 2)
+    }

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: loan-default-api
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
